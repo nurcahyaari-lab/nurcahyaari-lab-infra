@@ -38,6 +38,12 @@ variable "ssh_public_key" {
   type        = string
 }
 
+variable "vm_password" {
+  description = "Password for the ubuntu user, for console login when SSH is unavailable"
+  type        = string
+  sensitive   = true
+}
+
 variable "vms" {
   description = "VM spec sheet. Add an entry here to create another VM."
   type = map(object({

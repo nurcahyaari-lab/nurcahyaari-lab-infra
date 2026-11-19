@@ -34,6 +34,13 @@ provider "proxmox" {
   ssh {
     agent    = true
     username = "root"
+
+    # By default the provider SSHes to the node's LAN IP as reported by Proxmox,
+    # which is unreachable off the home network. Reuse the endpoint's host instead.
+    node {
+      name    = var.node_name
+      address = regex("^https?://([^:/]+)", var.proxmox_endpoint)[0]
+    }
   }
 }
 
@@ -47,6 +54,7 @@ module "proxmox" {
   gateway         = var.gateway
   dns_servers     = var.dns_servers
   ssh_public_key  = var.ssh_public_key
+  vm_password     = var.vm_password
   vms             = var.vms
 }
 

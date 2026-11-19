@@ -49,6 +49,12 @@ variable "ssh_public_key" {
   type        = string
 }
 
+variable "vm_password" {
+  description = "Password for the ubuntu user, for the Proxmox console only (SSH stays key-only). Set via TF_VAR_vm_password in .env."
+  type        = string
+  sensitive   = true
+}
+
 variable "vms" {
   description = "VM spec sheet. Add an entry here to create another VM."
   type = map(object({

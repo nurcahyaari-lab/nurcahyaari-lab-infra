@@ -11,7 +11,7 @@ bridge          = "vmbr0"
 gateway        = "192.168.1.1"
 ssh_public_key = "ssh-ed25519 AAAA... you@laptop"
 
-# Pick IPs OUTSIDE your router's DHCP range.
+# Pick IPs outside your router's DHCP range.
 vms = {
   "k8s-cp" = {
     vm_id   = 201

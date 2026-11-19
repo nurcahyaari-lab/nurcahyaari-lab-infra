@@ -1,0 +1,14 @@
+# OpenTofu
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+*.tfplan
+
+# Secrets
+.env
+**.env
+*.pem
+*.key

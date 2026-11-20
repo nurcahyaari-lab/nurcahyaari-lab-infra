@@ -58,6 +58,3 @@ module "proxmox" {
   vms             = var.vms
 }
 
-# module "tailscale" {
-#   source = "./tailscale"
-# }

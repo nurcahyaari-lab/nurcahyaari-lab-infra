@@ -2,10 +2,10 @@
 
 Everything to build the homelab lives here. There's two parts:
 
-- `terraform/` makes the VMs on Proxmox (cpu, memory, disk, ip, ssh key)
-- `ansible/` goes into those VMs and sets them up (hostname, containerd, kubernetes, etc)
+- `terraform/` sets the VMs on Proxmox (cpu, memory, disk, ip, ssh key)
+- `ansible/` sets the configurations, or applications on the VMs (hostname, containerd, kubernetes, etc)
 
-So terraform gives you empty machines, ansible makes them useful.
+So yeah, terraform provisions the machine and ansible configures the machine
 
 ## The machines
 
@@ -13,7 +13,7 @@ So terraform gives you empty machines, ansible makes them useful.
 | ---------- | ------------ | ------------------------ |
 | k8s-cp     | 192.168.1.21 | kubernetes control plane |
 | k8s-worker | 192.168.1.22 | kubernetes worker        |
-| monitoring | 192.168.1.23 | monitoring (not set up yet) |
+| monitoring | 192.168.1.23 | monitoring |
 
 All of them run Ubuntu 24.04 and you log in as `ubuntu` with the `~/.ssh/homelab` key.
 
@@ -37,7 +37,7 @@ ssh -J pve ubuntu@192.168.1.21
 2. Set them up, see [ansible/README.md](ansible/README.md)
 
    ```sh
-   cd ../ansible
+   cd ansible
    ansible-playbook playbooks/site.yaml
    ```
 

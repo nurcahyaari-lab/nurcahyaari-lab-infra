@@ -9,10 +9,7 @@ terraform {
   backend "s3" {
     bucket = "homelab-tfstate"
     region = "auto"
-    endpoints = {
-      s3 = "https://<CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com"
-    }
-    key = "terraform.tfstate"
+    key    = "terraform.tfstate"
 
     skip_credentials_validation = true
     skip_region_validation      = true

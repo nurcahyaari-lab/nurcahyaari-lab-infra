@@ -40,7 +40,7 @@ cp terraform.tfvars.example terraform.tfvars
 cp .env.example .env
 ```
 
-In `.env` put the R2 keys (as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, R2 speaks the S3 api), the Proxmox token and the VM password.
+In `.env` put the R2 keys (as `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, R2 speaks the S3 api), the R2 endpoint (`AWS_ENDPOINT_URL_S3`, it has your Cloudflare account id in it), the Proxmox token and the VM password.
 
 In `terraform.tfvars` put the Proxmox url, gateway, your ssh public key and the VM list.
 

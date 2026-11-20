@@ -1,0 +1,8 @@
+# Base setup every machine gets: hostname and /etc/hosts.
+#   ansible-playbook playbooks/common.yaml
+---
+- name: Base setup
+  hosts: all
+  become: true
+  roles:
+    - common

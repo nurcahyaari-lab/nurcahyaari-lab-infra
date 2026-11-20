@@ -1,0 +1,24 @@
+---
+- name: Set the hostname to the inventory name
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+# cloud-init runs with `manage_etc_hosts: true` (Proxmox sets this in its user-data),
+# so on every boot it regenerates /etc/hosts from this template. Writing our list here
+# keeps the entries after a reboot.
+- name: Write the cloud-init hosts template
+  ansible.builtin.template:
+    src: hosts.j2
+    dest: /etc/cloud/templates/hosts.debian.tmpl
+    owner: root
+    group: root
+    mode: "0644"
+
+# Write /etc/hosts too, so the change applies now without a reboot.
+- name: Write /etc/hosts
+  ansible.builtin.template:
+    src: hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: "0644"

@@ -1,0 +1,7 @@
+# Everything, in order. Use this to configure the homelab from fresh VMs:
+#   ansible-playbook playbooks/site.yaml
+#
+# New playbooks (e.g. kubernetes.yaml) get imported here, after common.yaml.
+---
+- name: Base setup for every machine
+  ansible.builtin.import_playbook: common.yaml

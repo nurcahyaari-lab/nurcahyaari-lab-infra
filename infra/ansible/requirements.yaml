@@ -1,0 +1,6 @@
+# Extra Ansible collections that this project needs.
+# Install them with:
+#   ansible-galaxy collection install -r requirements.yaml
+---
+collections:
+  - name: community.general # for modprobe

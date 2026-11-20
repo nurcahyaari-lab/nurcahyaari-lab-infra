@@ -1,0 +1,9 @@
+# Installs and sets up containerd. Kubernetes uses it to run containers.
+# Run it with:
+#   ansible-playbook playbooks/container_runtime.yaml
+---
+- name: Install containerd
+  hosts: k8s
+  become: true
+  roles:
+    - container_runtime

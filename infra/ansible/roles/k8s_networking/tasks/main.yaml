@@ -1,0 +1,21 @@
+# Installs Calico, the pod network. It runs on the control plane.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+# The commands use calico_version = v3.32.2.
+---
+# Manual:
+#   curl -fsSL -o /tmp/calico.yaml https://raw.githubusercontent.com/projectcalico/calico/v3.32.2/manifests/calico.yaml
+- name: Download and install Calico CNI plugin
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/calico.yaml
+    dest: /tmp/calico.yaml
+    mode: '0644'
+
+# Manual:
+#   sudo kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f /tmp/calico.yaml
+#   # or, as the ubuntu user:  kubectl apply -f /tmp/calico.yaml
+- name: Apply Calico CNI plugin manifest
+  ansible.builtin.command: kubectl apply -f /tmp/calico.yaml
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  changed_when: "'created' in calico_apply.stdout or 'configured' in calico_apply.stdout"
+  register: calico_apply

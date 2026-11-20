@@ -1,4 +1,5 @@
-# Base setup every machine gets: hostname and /etc/hosts.
+# Basic setup for all machines: hostname and /etc/hosts.
+# Run it with:
 #   ansible-playbook playbooks/common.yaml
 ---
 - name: Base setup

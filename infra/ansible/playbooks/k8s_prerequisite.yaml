@@ -1,0 +1,9 @@
+# Prepares the Kubernetes machines: kernel modules and network settings.
+# Run it with:
+#   ansible-playbook playbooks/k8s_prerequisite.yaml
+---
+- name: Prerequisites for Kubernetes networking modules
+  hosts: k8s
+  become: true
+  roles:
+    - k8s_prerequisites

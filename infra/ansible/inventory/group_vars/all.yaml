@@ -1,10 +1,14 @@
-# Applies to every machine in the inventory.
-ansible_user: ubuntu # created by cloud-init in infra/proxmox/vms.tf
-ansible_ssh_private_key_file: ~/.ssh/homelab # private half of var.ssh_public_key
+# Settings for all machines.
 
-# The VMs are only reachable from the Proxmox host's LAN, so hop through it first.
-# Same as `ssh -J pve ubuntu@<ip>`; "pve" is the Host entry in ~/.ssh/config.
+# The user that Ansible logs in as. cloud-init creates it (see infra/proxmox/vms.tf).
+ansible_user: ubuntu
+# The SSH key for that user.
+ansible_ssh_private_key_file: ~/.ssh/homelab
+
+# You can only reach the VMs through the Proxmox host.
+# This is the same as: ssh -J pve ubuntu@<ip>
+# "pve" is defined in ~/.ssh/config.
 ansible_ssh_common_args: -J pve
 
-# Python on the VMs that Ansible uses to run its modules (Ubuntu's system Python).
+# The Python program on the VMs that Ansible uses.
 ansible_python_interpreter: /usr/bin/python3

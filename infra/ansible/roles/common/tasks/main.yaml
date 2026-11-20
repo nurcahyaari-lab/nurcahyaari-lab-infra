@@ -1,11 +1,24 @@
+# Basic setup for all machines.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
 ---
+# Manual:
+#   sudo apt-get update
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+
+# Manual:
+#   sudo hostnamectl set-hostname k8s-cp      # the machine's name in the inventory
 - name: Set the hostname to the inventory name
   ansible.builtin.hostname:
     name: "{{ inventory_hostname }}"
 
-# cloud-init runs with `manage_etc_hosts: true` (Proxmox sets this in its user-data),
-# so on every boot it regenerates /etc/hosts from this template. Writing our list here
-# keeps the entries after a reboot.
+# cloud-init rebuilds /etc/hosts from this template every time the VM starts.
+# So we write our list here too. Then the list is kept after a reboot.
+# Manual:
+#   sudo nano /etc/cloud/templates/hosts.debian.tmpl   # paste the content of hosts.j2
+#   sudo chown root:root /etc/cloud/templates/hosts.debian.tmpl
+#   sudo chmod 0644 /etc/cloud/templates/hosts.debian.tmpl
 - name: Write the cloud-init hosts template
   ansible.builtin.template:
     src: hosts.j2
@@ -14,7 +27,18 @@
     group: root
     mode: "0644"
 
-# Write /etc/hosts too, so the change applies now without a reboot.
+# We also write /etc/hosts now, so the change works without a reboot.
+# Manual (example for k8s-cp):
+#   sudo tee /etc/hosts <<'EOF'
+#   127.0.1.1 k8s-cp k8s-cp
+#   127.0.0.1 localhost
+#   192.168.1.22 k8s-worker
+#   192.168.1.23 monitoring
+#   ::1 localhost ip6-localhost ip6-loopback
+#   ff02::1 ip6-allnodes
+#   ff02::2 ip6-allrouters
+#   EOF
+#   sudo chmod 0644 /etc/hosts
 - name: Write /etc/hosts
   ansible.builtin.template:
     src: hosts.j2
@@ -22,3 +46,13 @@
     owner: root
     group: root
     mode: "0644"
+
+# Manual:
+#   sudo apt-get install -y ca-certificates curl gpg
+- name: Install ca-certificate curl gpg
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gpg
+    state: present

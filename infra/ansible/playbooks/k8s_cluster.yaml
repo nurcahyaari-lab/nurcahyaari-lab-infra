@@ -1,0 +1,23 @@
+# Creates the cluster on the control plane, then adds the workers to it.
+# Always run all three plays together. The workers need the join command
+# that the first play creates.
+# Run it with:
+#   ansible-playbook playbooks/k8s_cluster.yaml
+---
+- name: Initialize the Kubernetes control plane
+  hosts: control_plane
+  become: true
+  roles:
+    - k8s_control_plane_installation
+
+- name: Install CNI plugin for Kubernetes networking
+  hosts: control_plane
+  become: true
+  roles:
+    - k8s_networking
+
+- name: Join worker nodes to the cluster
+  hosts: worker
+  become: true
+  roles:
+    - k8s_worker_node

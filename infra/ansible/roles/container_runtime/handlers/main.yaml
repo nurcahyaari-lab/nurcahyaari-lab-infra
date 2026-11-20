@@ -1,0 +1,8 @@
+# Handlers only run when a task asks for them with "notify", and only if that task changed something.
+---
+# Manual:
+#   sudo systemctl restart containerd
+- name: Restart containerd
+  ansible.builtin.systemd_service:
+    name: containerd
+    state: restarted

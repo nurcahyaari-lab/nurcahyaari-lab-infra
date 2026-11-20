@@ -1,0 +1,23 @@
+# Adds this machine to the cluster as a worker.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+---
+# The join command comes from the control plane (role k8s_control_plane_installation).
+# So that role must run first, in the same run.
+# "creates:" skips this task if the machine already joined. kubeadm join fails if you run it twice.
+# Manual (on k8s-worker, with the line that k8s-cp printed):
+#   sudo kubeadm join 192.168.1.21:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>
+- name: Join the Kubernetes cluster
+  ansible.builtin.command:
+    cmd: "{{ hostvars[groups['control_plane'][0]]['k8s_join_command'] }}"
+    creates: /etc/kubernetes/kubelet.conf
+
+# This task runs on the control plane (delegate_to). Only the control plane has admin access.
+# Manual (on k8s-cp):
+#   kubectl label node k8s-worker node-role.kubernetes.io/worker= --overwrite
+- name: Label the node with its hostname
+  ansible.builtin.command: >-
+    kubectl label node {{ inventory_hostname }} node-role.kubernetes.io/worker= --overwrite
+  delegate_to: "{{ groups['control_plane'][0] }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  changed_when: false

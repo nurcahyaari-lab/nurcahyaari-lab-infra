@@ -1,0 +1,19 @@
+# Settings for the machines in the k8s group (k8s-cp and k8s-worker).
+
+# The IP range for pods. It is used by: kubeadm init --pod-network-cidr
+# It must not overlap with the home network (192.168.1.0/24).
+# Calico reads this range from kubeadm, so Calico needs no extra setting.
+# Note: Calico's default range is 192.168.0.0/16. That overlaps the home network,
+# so we set a different range here.
+k8s_pod_network_cidr: 10.244.0.0/16
+
+# The address of the control plane. Workers use it to connect to the cluster.
+# It uses the IP of the first machine in the control_plane group.
+k8s_control_plane_endpoint: "{{ hostvars[groups['control_plane'][0]]['ansible_host'] }}:6443"
+
+# The Kubernetes version. It picks the apt repository on pkgs.k8s.io.
+# Changing this does not upgrade a running cluster. Use "kubeadm upgrade" for that.
+k8s_version: "v1.37"
+
+# The Calico version. See https://github.com/projectcalico/calico/releases
+calico_version: "v3.32.2"

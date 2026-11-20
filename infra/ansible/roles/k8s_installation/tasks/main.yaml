@@ -1,0 +1,58 @@
+# Installs kubeadm, kubelet and kubectl.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+# The commands use k8s_version = v1.37.
+---
+# Manual:
+#   sudo mkdir -p -m 755 /etc/apt/keyrings
+#   curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.37/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+#   echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.37/deb/ /' | sudo tee /etc/apt/sources.list.d/kubernetes.list
+- name: Add kubernetes api repository & signing key
+  ansible.builtin.deb822_repository:
+    name: kubernetes
+    types: deb
+    uris: https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/deb/
+    suites: /
+    signed_by: https://pkgs.k8s.io/core:/stable:/{{ k8s_version }}/deb/Release.key
+    state: present
+    enabled: true
+  register: k8s_repo
+
+# Manual:
+#   sudo apt-get update
+- name: Add kubernetes repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: k8s_repo.changed
+
+# Manual:
+#   sudo apt-get update
+#   sudo apt-get install -y kubelet kubeadm kubectl
+- name: Install kubelet, kubeadm, and kubectl
+  ansible.builtin.apt:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+    update_cache: true
+
+# Stop apt from upgrading these packages by itself.
+# Manual:
+#   sudo apt-mark hold kubelet kubeadm kubectl
+- name: Hold kubelet, kubeadm, and kubectl at current version
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+# kubelet keeps restarting until "kubeadm init" or "kubeadm join" runs. This is normal.
+# Manual:
+#   sudo systemctl enable --now kubelet
+- name: Enable kubelet
+  ansible.builtin.systemd_service:
+    name: kubelet
+    enabled: true
+    state: started

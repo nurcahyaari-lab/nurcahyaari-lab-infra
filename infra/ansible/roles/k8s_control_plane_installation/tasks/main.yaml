@@ -1,0 +1,68 @@
+# Creates the cluster on the control plane (k8s-cp).
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+---
+# Manual:
+#   sudo kubeadm config images pull
+- name: Pull kubernetes control plane images (versions match the installed kubeadm)
+  ansible.builtin.command: kubeadm config images pull
+  register: images_pull
+  changed_when: "'Pulled' in images_pull.stdout"
+
+# ">-" joins the lines below into one line. So you do not need "\" at the end of each line.
+# "creates:" skips this task if the cluster already exists. kubeadm init fails if you run it twice.
+# Manual (only if /etc/kubernetes/admin.conf does not exist yet):
+#   sudo kubeadm init \
+#     --apiserver-advertise-address=192.168.1.21 \
+#     --pod-network-cidr=10.244.0.0/16 \
+#     --control-plane-endpoint=192.168.1.21:6443
+- name: Initialize kubernetes control plane
+  ansible.builtin.command:
+    cmd: >-
+      kubeadm init
+      --apiserver-advertise-address={{ ansible_default_ipv4.address }}
+      --pod-network-cidr={{ k8s_pod_network_cidr }}
+      --control-plane-endpoint={{ k8s_control_plane_endpoint }}
+    creates: /etc/kubernetes/admin.conf
+  register: k8s_init
+  changed_when: "'[init] Using Kubernetes version' in k8s_init.stdout"
+
+# Manual (as the ubuntu user):
+#   mkdir -p $HOME/.kube
+- name: Ensure .kube directory exists for the ansible user
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+
+# Lets the ubuntu user run kubectl.
+# Manual (as the ubuntu user):
+#   sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+#   sudo chown $(id -u):$(id -g) $HOME/.kube/config
+#   chmod 0600 $HOME/.kube/config
+- name: Copy admin.conf to ansible user's .kube directory
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "/home/{{ ansible_user }}/.kube/config"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    remote_src: yes
+    mode: "0600"
+
+# Prints the full "kubeadm join ..." command, with a new token and the CA hash.
+# It makes a new token every run. Tokens expire after 24 hours.
+# This task only reads, so it never shows "changed".
+# Manual:
+#   sudo kubeadm token create --print-join-command     # copy the line it prints
+- name: Create a join command for worker nodes
+  ansible.builtin.command: kubeadm token create --print-join-command
+  register: k8s_join
+  changed_when: false
+
+# Saves the join command on this machine (k8s-cp).
+# The workers read it from here later in the same run.
+# Manual: no command. This is like copying the line to the worker.
+- name: Share the join command with worker nodes
+  ansible.builtin.set_fact:
+    k8s_join_command: "{{ k8s_join.stdout }}"

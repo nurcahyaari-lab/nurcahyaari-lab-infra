@@ -1,0 +1,9 @@
+# Installs kubeadm, kubelet and kubectl on the Kubernetes machines.
+# Run it with:
+#   ansible-playbook playbooks/k8s_init.yaml
+---
+- name: Install kubeadm, kubelet and kubectl
+  hosts: k8s
+  become: true
+  roles:
+    - k8s_installation

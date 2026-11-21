@@ -1,0 +1,9 @@
+# Settings for the Proxmox host (pve).
+
+# pve is the jump host, so don't jump through it to reach itself.
+ansible_ssh_common_args: ""
+
+# The LAN subnets pve routes into the tailnet.
+# Must match tailscale_routes in terraform/variables.tf.
+tailscale_advertise_routes:
+  - 192.168.1.0/24

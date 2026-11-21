@@ -1,0 +1,27 @@
+---
+# Manual:
+#   echo 'net.ipv4.ip_forward = 1' | tee /etc/sysctl.d/99-tailscale.conf
+#   sysctl -p /etc/sysctl.d/99-tailscale.conf
+- name: Let pve forward traffic between Tailscale and the LAN
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-tailscale.conf
+    reload: true
+
+# Manual:
+#   tailscale debug prefs   # look at AdvertiseRoutes
+- name: Read the routes pve advertises now
+  ansible.builtin.command:
+    cmd: tailscale debug prefs
+  register: tailscale_prefs
+  changed_when: false
+  check_mode: false
+
+# Manual:
+#   tailscale set --advertise-routes=192.168.1.0/24
+- name: Advertise the homelab subnet
+  ansible.builtin.command:
+    cmd: tailscale set --advertise-routes={{ tailscale_advertise_routes | join(',') }}
+  when: (tailscale_prefs.stdout | from_json).AdvertiseRoutes | default([], true) | sort != tailscale_advertise_routes | sort
+  changed_when: true

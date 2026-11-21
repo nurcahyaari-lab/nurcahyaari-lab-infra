@@ -18,3 +18,6 @@
 
 - name: Create Kubernetes cluster
   ansible.builtin.import_playbook: k8s_cluster.yaml
+
+- name: Tailscale Subnetting
+  ansible.builtin.import_playbook: tailscale_subnetting.yaml

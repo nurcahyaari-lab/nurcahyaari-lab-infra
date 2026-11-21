@@ -6,7 +6,7 @@
 
 # The other machines in the homelab. This list comes from the Ansible inventory.
 # This machine is not in the list. Its name is on the 127.0.1.1 line above.
-{% for host in groups['all'] | sort if host != inventory_hostname %}
+{% for host in groups['all'] | difference(groups['proxmox'] | default([])) | sort if host != inventory_hostname %}
 {{ hostvars[host]['ansible_host'] }} {{ host }}
 {% endfor %}
 

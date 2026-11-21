@@ -43,7 +43,7 @@ You can't reach the VMs directly, so ansible jumps through the Proxmox host. It'
 ssh -J pve ubuntu@192.168.1.21
 ```
 
-That's set in `inventory/group_vars/all.yaml`. If `ansible all -m ping` fails, try that ssh command by hand first. If that doesn't work either, it's an ssh problem not an ansible problem.
+That's set in `inventory/group_vars/all.yaml`. With Tailscale up the jump isn't really needed anymore, but I keep it so ansible still works when Tailscale is down. If `ansible all -m ping` fails, try that ssh command by hand first. If that doesn't work either, it's an ssh problem not an ansible problem.
 
 ## Folders
 
@@ -124,7 +124,7 @@ scp -J pve ubuntu@192.168.1.21:.kube/config ~/.kube/homelab
 KUBECONFIG=~/.kube/homelab kubectl get nodes
 ```
 
-(this needs the laptop to reach 192.168.1.21:6443, so it works from home but not through the jump host)
+(this needs the laptop to reach 192.168.1.21:6443. From home it just works, from outside it goes through Tailscale, see [../readme.md](../readme.md#reaching-the-lan-with-tailscale). The jump host doesn't help here, it's only for ssh)
 
 ## When things break
 

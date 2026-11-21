@@ -1,0 +1,131 @@
+# Installs Grafana from Grafana's apt repo, pinned to one version.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+# In the commands, V is the version from group_vars/monitoring.yaml, like V=13.2.4
+---
+# Manual:
+#   sudo mkdir -p /etc/apt/keyrings
+- name: Make sure the apt keyrings folder exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+# Manual:
+#   sudo curl -fsSL https://apt.grafana.com/gpg.key -o /etc/apt/keyrings/grafana.asc
+- name: Add Grafana's apt signing key
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg.key
+    dest: /etc/apt/keyrings/grafana.asc
+    mode: "0644"
+
+# Manual:
+#   echo "deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main" | sudo tee /etc/apt/sources.list.d/grafana.list
+- name: Add Grafana's apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main"
+    filename: grafana
+    state: present
+
+# Manual:
+#   sudo apt-get update
+#   sudo apt-get install -y --allow-change-held-packages grafana=$V
+- name: Install Grafana {{ grafana_version }} (pinned)
+  ansible.builtin.apt:
+    name: "grafana={{ grafana_version }}"
+    state: present
+    update_cache: true
+    allow_change_held_packages: true
+  notify: Restart grafana
+
+# Manual:
+#   sudo apt-mark hold grafana
+- name: Hold Grafana at this version (no surprise upgrades from apt upgrade)
+  ansible.builtin.dpkg_selections:
+    name: grafana
+    selection: hold
+
+# Manual:
+#   sudo install -d -o root -g grafana -m 0750 /etc/grafana-secrets
+- name: Create the secrets folder
+  ansible.builtin.file:
+    path: /etc/grafana-secrets
+    state: directory
+    owner: root
+    group: grafana
+    mode: "0750"
+
+# Manual (the space at the start keeps the password out of shell history):
+#    printf '%s' 'PASSWORD' | sudo tee /etc/grafana-secrets/admin_password > /dev/null
+#   sudo chown root:grafana /etc/grafana-secrets/admin_password
+#   sudo chmod 0640 /etc/grafana-secrets/admin_password
+- name: Install the admin password file (from Ansible Vault)
+  ansible.builtin.copy:
+    content: "{{ grafana_admin_password }}"
+    dest: /etc/grafana-secrets/admin_password
+    owner: root
+    group: grafana
+    mode: "0640"
+  no_log: true
+
+# Manual:
+#   echo 'GF_SECURITY_ADMIN_PASSWORD__FILE=/etc/grafana-secrets/admin_password' | sudo tee -a /etc/default/grafana-server
+#   sudo systemctl restart grafana-server
+- name: Tell Grafana to read the admin password from that file
+  ansible.builtin.lineinfile:
+    path: /etc/default/grafana-server
+    regexp: "^GF_SECURITY_ADMIN_PASSWORD__FILE="
+    line: "GF_SECURITY_ADMIN_PASSWORD__FILE=/etc/grafana-secrets/admin_password"
+  notify: Restart grafana
+
+# Manual:
+#   echo 'GF_ANALYTICS_REPORTING_ENABLED=false' | sudo tee -a /etc/default/grafana-server
+#   sudo systemctl restart grafana-server
+- name: Turn off usage reporting
+  ansible.builtin.lineinfile:
+    path: /etc/default/grafana-server
+    regexp: "^GF_ANALYTICS_REPORTING_ENABLED="
+    line: "GF_ANALYTICS_REPORTING_ENABLED=false"
+  notify: Restart grafana
+
+# Manual (after copying datasources.yml to /tmp on the VM):
+#   sudo install -o root -g grafana -m 0640 /tmp/datasources.yml /etc/grafana/provisioning/datasources/datasources.yml
+#   sudo systemctl restart grafana-server
+- name: Provision the data sources (from the manifests repo)
+  ansible.builtin.copy:
+    src: "{{ monitoring_config_dir }}/grafana/datasource.yml"
+    dest: /etc/grafana/provisioning/datasources/datasources.yml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana
+
+# Manual:
+#   sudo mkdir -p /etc/systemd/system/grafana-server.service.d
+- name: Create a systemd drop-in folder for grafana-server
+  ansible.builtin.file:
+    path: /etc/systemd/system/grafana-server.service.d
+    state: directory
+    mode: "0755"
+
+# Manual:
+#   printf '[Service]\nMemoryMax=300M\n' | sudo tee /etc/systemd/system/grafana-server.service.d/memory.conf
+#   sudo systemctl daemon-reload
+#   sudo systemctl restart grafana-server
+- name: Limit Grafana's memory with a drop-in
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/grafana-server.service.d/memory.conf
+    content: |
+      [Service]
+      MemoryMax={{ grafana_memory_max }}
+    mode: "0644"
+  notify: Restart grafana
+
+# Manual:
+#   sudo systemctl enable --now grafana-server
+#   curl -s localhost:3000/api/health     # check: "database" should be "ok"
+- name: Start Grafana now and at boot
+  ansible.builtin.systemd_service:
+    name: grafana-server
+    state: started
+    enabled: true
+    daemon_reload: true

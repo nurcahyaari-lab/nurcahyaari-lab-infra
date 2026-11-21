@@ -1,0 +1,25 @@
+# Sets up monitoring: node_exporter on monitoring + pve, and the whole stack on the monitoring VM.
+# Needs the vault secrets and the k8s token secret, see README.md#monitoring.
+# Run it with:
+#   ansible-playbook playbooks/monitoring.yaml --ask-vault-pass
+---
+- name: Install node_exporter on every machine that isn't k8s node
+  hosts: monitoring:proxmox
+  become: true
+  roles:
+    - node_exporter
+
+- name: Install monitoring stacks
+  hosts: monitoring
+  become: true
+  roles:
+    - prometheus
+    - alertmanager
+    - grafana
+    - pve_exporter
+
+- name: Install process-exporter
+  hosts: all
+  become: true
+  roles:
+    - process_exporter

@@ -1,0 +1,22 @@
+# Installs node_exporter, so Prometheus can read CPU, memory, disk and network of the machine.
+# The k8s nodes don't get this, they're scraped from inside the cluster.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+---
+# Manual:
+#   sudo apt-get update
+#   sudo apt-get install -y prometheus-node-exporter
+- name: Install node_exporter from the distro packages
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# Manual:
+#   sudo systemctl enable --now prometheus-node-exporter
+#   curl -s localhost:9100/metrics | head     # check: you should see metrics
+- name: Make sure it runs now and at boot
+  ansible.builtin.systemd_service:
+    name: prometheus-node-exporter
+    state: started
+    enabled: true

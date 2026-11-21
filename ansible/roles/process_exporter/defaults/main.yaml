@@ -1,0 +1,1 @@
+process_exporter_url: https://github.com/ncabatoff/process-exporter/releases/download/v{{ process_exporter_version }}

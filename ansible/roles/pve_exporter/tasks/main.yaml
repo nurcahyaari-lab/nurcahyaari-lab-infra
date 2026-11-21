@@ -1,0 +1,75 @@
+# Installs prometheus-pve-exporter on the monitoring VM. It talks to the Proxmox API
+# with a read-only token and gives Prometheus the VM/storage/node numbers.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+# In the commands, V is the version from group_vars/monitoring.yaml, like V=3.3.0
+---
+# Manual:
+#   sudo useradd --system --shell /usr/sbin/nologin --no-create-home pve-exporter
+- name: Create the pve-exporter system user
+  ansible.builtin.user:
+    name: pve-exporter
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+# Manual:
+#   sudo apt-get install -y python3-venv
+- name: Install Python's venv support
+  ansible.builtin.apt:
+    name: python3-venv
+    state: present
+
+# Manual:
+#   sudo python3 -m venv /opt/pve-exporter
+#   sudo /opt/pve-exporter/bin/pip install prometheus-pve-exporter==$V
+- name: Install prometheus-pve-exporter {{ pve_exporter_version }} into a virtualenv
+  ansible.builtin.pip:
+    name: "prometheus-pve-exporter=={{ pve_exporter_version }}"
+    virtualenv: /opt/pve-exporter
+    virtualenv_command: python3 -m venv
+  notify: Restart pve-exporter
+
+# Manual:
+#   sudo install -d -o root -g pve-exporter -m 0750 /etc/pve-exporter
+- name: Create the config folder
+  ansible.builtin.file:
+    path: /etc/pve-exporter
+    state: directory
+    owner: root
+    group: pve-exporter
+    mode: "0750"
+
+# Manual:
+#   sudo vim /etc/pve-exporter/pve.yml     # paste templates/pve.yml.j2, put the real token in token_value
+#   sudo chown root:pve-exporter /etc/pve-exporter/pve.yml
+#   sudo chmod 0640 /etc/pve-exporter/pve.yml
+#   sudo systemctl restart pve-exporter
+- name: Install pve.yml with the Proxmox API token (from Ansible Vault)
+  ansible.builtin.template:
+    src: pve.yml.j2
+    dest: /etc/pve-exporter/pve.yml
+    owner: root
+    group: pve-exporter
+    mode: "0640"
+  no_log: true
+  notify: Restart pve-exporter
+
+# Manual:
+#   sudo vim /etc/systemd/system/pve-exporter.service     # paste templates/pve-exporter.service.j2, fill in the {{ }} values
+#   sudo systemctl daemon-reload
+- name: Install the systemd unit
+  ansible.builtin.template:
+    src: pve-exporter.service.j2
+    dest: /etc/systemd/system/pve-exporter.service
+    mode: "0644"
+  notify: Restart pve-exporter
+
+# Manual:
+#   sudo systemctl enable --now pve-exporter
+#   curl -s 'localhost:9221/pve?target=192.168.1.5' | grep pve_up     # check: should be 1
+- name: Start pve-exporter now and at boot
+  ansible.builtin.systemd_service:
+    name: pve-exporter
+    state: started
+    enabled: true
+    daemon_reload: true

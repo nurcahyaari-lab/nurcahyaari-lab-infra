@@ -1,0 +1,10 @@
+# Runs once at the end of the play, only if a task notified it and that task changed something.
+# Manual:
+#   sudo systemctl daemon-reload
+#   sudo systemctl restart process-exporter
+---
+- name: Restart process-exporter
+  ansible.builtin.systemd_service:
+    name: process-exporter
+    state: restarted
+    daemon_reload: true

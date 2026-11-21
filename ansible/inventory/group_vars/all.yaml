@@ -12,3 +12,5 @@ ansible_ssh_common_args: -J pve
 
 # The Python program on the VMs that Ansible uses.
 ansible_python_interpreter: /usr/bin/python3
+
+process_exporter_version: 0.8.7

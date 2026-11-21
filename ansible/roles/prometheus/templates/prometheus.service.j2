@@ -1,0 +1,28 @@
+[Unit]
+Description=Prometheus
+Documentation=https://prometheus.io/docs/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=prometheus
+Group=prometheus
+ExecStart=/opt/prometheus/prometheus \
+  --config.file=/etc/prometheus/prometheus.yml \
+  --storage.tsdb.path=/var/lib/prometheus \
+  --storage.tsdb.retention.time={{ prometheus_retention_time }} \
+  --storage.tsdb.retention.size={{ prometheus_retention_size }} \
+  --web.enable-lifecycle
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+MemoryMax={{ prometheus_memory_max }}
+
+# Hardening: Prometheus only needs to write to its data folder
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/prometheus
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

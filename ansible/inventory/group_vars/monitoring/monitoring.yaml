@@ -1,0 +1,23 @@
+prometheus_version: "3.13.5"        
+alertmanager_version: "0.32.0"      
+grafana_version: "13.2.4"           
+pve_exporter_version: "3.3.0" 
+
+prometheus_retention_time: 30d
+prometheus_retention_size: 10GB
+prometheus_memory_max: 900M
+alertmanager_memory_max: 64M
+grafana_memory_max: 512M
+pve_exporter_memory_max: 96M
+
+# The prometheus/alertmanager/grafana config files live in the manifests repo.
+# By default I look for it next to this repo (homelab/nurcahyaari-lab-manifests).
+# If you cloned it somewhere else, point MONITORING_CONFIG_DIR at its monitoring/config folder:
+#   export MONITORING_CONFIG_DIR=~/code/nurcahyaari-lab-manifests/monitoring/config
+monitoring_config_dir: "{{ lookup('ansible.builtin.env', 'MONITORING_CONFIG_DIR') | default(inventory_dir ~ '/../../../nurcahyaari-lab-manifests/monitoring/config', true) }}"
+
+kubectl_context: homelab
+
+grafana_admin_password: "{{ vault_grafana_admin_password }}"
+telegram_bot_token: "{{ vault_telegram_bot_token }}"
+pve_token_value: "{{ vault_pve_token_value }}"

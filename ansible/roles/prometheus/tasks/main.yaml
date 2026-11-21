@@ -1,0 +1,142 @@
+# Installs Prometheus from the GitHub release and runs it with systemd.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+# In the commands, V is the version from group_vars/monitoring.yaml, like V=3.13.5
+---
+# Manual:
+#   sudo useradd --system --shell /usr/sbin/nologin --no-create-home prometheus
+- name: Create the prometheus system user
+  ansible.builtin.user:
+    name: prometheus
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+# Manual:
+#   cd /tmp
+#   curl -LO https://github.com/prometheus/prometheus/releases/download/v$V/prometheus-$V.linux-amd64.tar.gz
+#   curl -LO https://github.com/prometheus/prometheus/releases/download/v$V/sha256sums.txt
+#   sha256sum --check --ignore-missing sha256sums.txt     # check: it should say OK
+- name: Download Prometheus {{ prometheus_version }} (checksum verified)
+  ansible.builtin.get_url:
+    url: "{{ prometheus_url }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    checksum: "sha256:{{ prometheus_url }}/sha256sums.txt"
+    dest: "/tmp/prometheus-{{ prometheus_version }}.tar.gz"
+    mode: "0644"
+
+# Manual:
+#   sudo tar -xzf /tmp/prometheus-$V.linux-amd64.tar.gz -C /opt
+- name: Unpack it into /opt
+  ansible.builtin.unarchive:
+    src: "/tmp/prometheus-{{ prometheus_version }}.tar.gz"
+    dest: /opt
+    remote_src: true
+    creates: "/opt/prometheus-{{ prometheus_version }}.linux-amd64/prometheus"
+
+# Manual:
+#   sudo ln -sfn /opt/prometheus-$V.linux-amd64 /opt/prometheus
+- name: Point /opt/prometheus at this version
+  ansible.builtin.file:
+    src: "/opt/prometheus-{{ prometheus_version }}.linux-amd64"
+    dest: /opt/prometheus
+    state: link
+  notify: Restart prometheus
+
+# Manual:
+#   sudo install -d -o root       -g prometheus -m 0755 /etc/prometheus /etc/prometheus/rules
+#   sudo install -d -o root       -g prometheus -m 0750 /etc/prometheus-secrets
+#   sudo install -d -o prometheus -g prometheus -m 0750 /var/lib/prometheus
+- name: Create config, secrets and data folders
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: prometheus
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/prometheus,         owner: root,       mode: "0755" }
+    - { path: /etc/prometheus/rules,   owner: root,       mode: "0755" }
+    - { path: /etc/prometheus-secrets, owner: root,       mode: "0750" }
+    - { path: /var/lib/prometheus,     owner: prometheus, mode: "0750" }
+
+# Manual (on the laptop, then copy the two files to the monitoring VM):
+#   kubectl --context homelab -n monitoring get secret external-prometheus-token -o jsonpath='{.data.token}'  | base64 -d > k8s-token
+#   kubectl --context homelab -n monitoring get secret external-prometheus-token -o jsonpath='{.data.ca\.crt}' | base64 -d > k8s-ca.crt
+#   scp -J pve k8s-token k8s-ca.crt ubuntu@192.168.1.23:/tmp/
+# Then on the monitoring VM:
+#   sudo install -o root -g prometheus -m 0640 /tmp/k8s-token /tmp/k8s-ca.crt /etc/prometheus-secrets/
+#   rm /tmp/k8s-token /tmp/k8s-ca.crt
+# Runs on the laptop. If it fails, run the kubectl command above to see why.
+- name: Read the Kubernetes token secret with kubectl
+  ansible.builtin.command:
+    cmd: kubectl --context {{ kubectl_context }} -n monitoring get secret external-prometheus-token -o json --request-timeout=30s
+  delegate_to: localhost
+  become: false
+  run_once: true
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  register: k8s_prom_secret_raw
+  until: k8s_prom_secret_raw.rc == 0
+  retries: 3
+  delay: 5
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Install the Kubernetes token and CA
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "/etc/prometheus-secrets/{{ item.name }}"
+    owner: root
+    group: prometheus
+    mode: "0640"
+  vars:
+    k8s_prom_secret: "{{ k8s_prom_secret_raw.stdout | from_json }}"
+  loop:
+    - { name: k8s-token,  content: "{{ k8s_prom_secret.data.token | b64decode }}" }
+    - { name: k8s-ca.crt, content: "{{ k8s_prom_secret.data['ca.crt'] | b64decode }}" }
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+
+# Manual (from the laptop):
+#   scp -J pve ../nurcahyaari-lab-manifests/monitoring/config/prometheus/rules/* ubuntu@192.168.1.23:/tmp/
+#   ssh -J pve ubuntu@192.168.1.23 'sudo cp /tmp/*.yml /etc/prometheus/rules/'
+#   sudo systemctl reload prometheus
+- name: Install the alert rules (from the manifests repo)
+  ansible.builtin.copy:
+    src: "{{ monitoring_config_dir }}/prometheus/rules/"
+    dest: /etc/prometheus/rules/
+    mode: "0644"
+  notify: Reload prometheus
+
+# Manual (after copying prometheus.yml to /tmp on the VM):
+#   /opt/prometheus/promtool check config /tmp/prometheus.yml     # check: it should say SUCCESS
+#   sudo cp /tmp/prometheus.yml /etc/prometheus/prometheus.yml
+#   sudo systemctl reload prometheus
+- name: Install prometheus.yml (from the manifests repo; promtool checks it first)
+  ansible.builtin.copy:
+    src: "{{ monitoring_config_dir }}/prometheus/prometheus.yml"
+    dest: /etc/prometheus/prometheus.yml
+    mode: "0644"
+    validate: /opt/prometheus/promtool check config %s
+  notify: Reload prometheus
+
+# Manual:
+#   sudo vim /etc/systemd/system/prometheus.service     # paste templates/prometheus.service.j2, fill in the {{ }} values
+#   sudo systemctl daemon-reload
+- name: Install the systemd unit
+  ansible.builtin.template:
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    mode: "0644"
+  notify: Restart prometheus
+
+# Manual:
+#   sudo systemctl enable --now prometheus
+#   curl -s localhost:9090/-/ready     # check: it should say Ready
+- name: Start Prometheus now and at boot
+  ansible.builtin.systemd_service:
+    name: prometheus
+    state: started
+    enabled: true
+    daemon_reload: true

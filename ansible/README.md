@@ -9,8 +9,8 @@ Right now it does:
 - containerd (the thing that actually runs containers)
 - kubeadm, kubelet, kubectl
 - creates the cluster on `k8s-cp`, installs Calico for pod networking, and joins `k8s-worker`
-
-The `monitoring` VM only gets the basic setup for now.
+- makes `pve` a Tailscale subnet router so I can reach the LAN from outside
+- monitoring on the `monitoring` VM: Prometheus, Alertmanager (sends to Telegram), Grafana, and pve-exporter for Proxmox numbers. `monitoring` and `pve` also get node_exporter
 
 ## Getting ansible to run
 
@@ -54,6 +54,8 @@ inventory/
   hosts.ini              the machines and their groups
   group_vars/all.yaml    settings for every machine (ssh user, key, jump host)
   group_vars/k8s.yaml    kubernetes settings (version, pod ip range, calico version)
+  group_vars/monitoring/  monitoring.yaml (versions, memory limits) + monitoring-vault.yml (secrets)
+  group_vars/proxmox.yaml     pve settings (no jump host, tailscale routes)
 playbooks/               which roles run on which machines
 roles/                   the actual steps
 ```
@@ -79,8 +81,56 @@ They run in this order (`site.yaml` runs all of them):
 | `container_runtime.yaml` | k8s | containerd |
 | `k8s_init.yaml` | k8s | installs kubeadm, kubelet, kubectl |
 | `k8s_cluster.yaml` | control_plane, then worker | kubeadm init, calico, kubeadm join |
+| `tailscale_subnetting.yaml` | proxmox | ip forwarding + advertise the LAN route |
+| `monitoring.yaml` | monitoring + proxmox | node_exporter, then prometheus, alertmanager, grafana, pve-exporter |
 
 `k8s_cluster.yaml` has to run as a whole. The control plane makes a join command and the worker uses it in the same run, so if you `--limit` to only the worker it'll fail.
+
+## Monitoring
+
+Everything runs on the `monitoring` VM (192.168.1.23) as plain systemd services. Prometheus and Alertmanager come from the GitHub release tarball (checksum checked), Grafana from Grafana's apt repo, pve-exporter from pip in a venv. Versions are pinned in `group_vars/monitoring/monitoring.yaml`. To upgrade, I just bump the version there and run the playbook again.
+
+| service | port | what it is |
+| --- | --- | --- |
+| prometheus | 9090 | collects the metrics |
+| alertmanager | 9093 | sends alerts to Telegram |
+| grafana | 3000 | dashboards, login is `admin` + the vault password |
+| pve-exporter | 9221 (localhost only) | asks the Proxmox API for VM/storage numbers |
+| node_exporter | 9100 | on `monitoring` and `pve`, machine CPU/mem/disk |
+
+Before running `monitoring.yaml` I need a few things ready:
+
+1. **Secrets in Ansible Vault.** `group_vars/monitoring/monitoring.yaml` reads `vault_grafana_admin_password`, `vault_telegram_bot_token` and `vault_pve_token_value`. I put them in a vault file next to it:
+
+   ```sh
+   mkdir -p inventory/group_vars/monitoring
+   mv inventory/group_vars/monitoring.yaml inventory/group_vars/monitoring/monitoring.yaml
+   ansible-vault create inventory/group_vars/monitoring/monitoring-vault.yml
+   ```
+
+   Then run the playbooks with `--ask-vault-pass`.
+
+2. **A read-only Proxmox token** for pve-exporter. On pve:
+
+   ```sh
+   pveum user add prometheus@pve
+   pveum acl modify / --users prometheus@pve --roles PVEAuditor
+   pveum user token add prometheus@pve monitoring --privsep 0
+   ```
+
+   The last one prints the token value once. That goes in vault as `vault_pve_token_value`.
+
+3. **The kubernetes token for Prometheus.** Prometheus scrapes the cluster from outside, so it needs a service account token. Ansible reads it with `kubectl` on my laptop (context `homelab`), from the `external-prometheus-token` secret in the `monitoring` namespace. So that secret has to exist in the cluster first, and my kubeconfig needs the `homelab` context.
+
+4. **The config files** live in the manifests repo, in `nurcahyaari-lab-manifests/monitoring/config/`: `prometheus/prometheus.yml`, `prometheus/rules/`, `alertmanager/alertmanager.yml`, `grafana/datasource.yml`. By default Ansible looks for that repo next to this one. If you cloned it somewhere else, set `MONITORING_CONFIG_DIR` to its `monitoring/config` folder (for example `export MONITORING_CONFIG_DIR=~/code/nurcahyaari-lab-manifests/monitoring/config`). The path is `monitoring_config_dir` in `group_vars/monitoring/monitoring.yaml`. `prometheus.yml` and `alertmanager.yml` get checked with promtool/amtool before they're installed, so a broken config won't replace the working one.
+
+Then:
+
+```sh
+ansible-playbook playbooks/monitoring.yaml --ask-vault-pass
+```
+
+If I only changed a config file, the services get a reload, not a restart. Prometheus keeps its data either way.
 
 ## Running it
 
@@ -98,6 +148,8 @@ ansible-playbook playbooks/k8s_prerequisite.yaml
 ansible-playbook playbooks/container_runtime.yaml
 ansible-playbook playbooks/k8s_init.yaml
 ansible-playbook playbooks/k8s_cluster.yaml
+ansible-playbook playbooks/tailscale_subnetting.yaml
+ansible-playbook playbooks/monitoring.yaml --ask-vault-pass
 ```
 
 Some useful flags:
@@ -117,6 +169,18 @@ ansible k8s-cp -a "kubectl get nodes"        # both nodes Ready (give it a minut
 ansible k8s-cp -a "kubectl get pods -A"      # calico + coredns should be Running
 ```
 
+For monitoring:
+
+```sh
+ansible monitoring -a "systemctl is-active prometheus alertmanager grafana-server pve-exporter prometheus-node-exporter"   # all active
+ansible monitoring -a "curl -s localhost:9090/-/ready"         # Prometheus is Ready
+ansible monitoring -a "curl -s localhost:9093/-/ready"         # OK
+ansible monitoring -a "curl -s localhost:3000/api/health"      # "database": "ok"
+ansible monitoring -a "curl -s 'localhost:9221/pve?target=192.168.1.5'" | grep pve_up   # should be 1
+```
+
+Then open http://192.168.1.23:9090/targets, everything should be UP. Grafana is at http://192.168.1.23:3000.
+
 To use kubectl from your laptop:
 
 ```sh
@@ -133,6 +197,10 @@ KUBECONFIG=~/.kube/homelab kubectl get nodes
 - **pods keep restarting right after init**: check containerd has `SystemdCgroup = true` and was restarted after.
 - **`Unsupported parameters` error**: a typo in a module option. The error lists the real names.
 - **`couldn't resolve module/action`**: either a typo in the module name or a collection that isn't installed.
+- **monitoring playbook fails on `Read the Kubernetes token secret`**: that's `kubectl` on the laptop. Try `kubectl --context homelab -n monitoring get secret external-prometheus-token` by hand.
+- **`'vault_...' is undefined`**: forgot `--ask-vault-pass`, or the vault file doesn't have that key.
+- **a service won't start**: `journalctl -u <service> -n 50` on the monitoring VM. If it got killed, check `MemoryMax` in `group_vars/monitoring/monitoring.yaml`.
+- **`pve_up` is 0**: the token is wrong or doesn't have `PVEAuditor`. Test it with `curl -k -H 'Authorization: PVEAPIToken=prometheus@pve!monitoring=TOKEN' https://192.168.1.5:8006/api2/json/nodes`.
 
 ## Adding stuff
 

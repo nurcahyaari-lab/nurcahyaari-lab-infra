@@ -1,0 +1,101 @@
+# Installs process-exporter, so Prometheus can see CPU and memory per process.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+# The commands use process_exporter_version = 0.8.7.
+---
+# Manual:
+#   cd /tmp
+#   curl -LO https://github.com/ncabatoff/process-exporter/releases/download/v0.8.7/process-exporter-0.8.7.linux-amd64.tar.gz
+#   curl -LO https://github.com/ncabatoff/process-exporter/releases/download/v0.8.7/checksums.txt
+#   sha256sum --ignore-missing -c checksums.txt     # check: it should say "OK"
+- name: Download process-exporter {{ process_exporter_version }} and check its checksum
+  ansible.builtin.get_url:
+    url: "{{ process_exporter_url }}/process-exporter-{{ process_exporter_version }}.linux-amd64.tar.gz"
+    checksum: "sha256:{{ process_exporter_url }}/checksums.txt"
+    dest: "/tmp/process-exporter-{{ process_exporter_version }}.tar.gz"
+    mode: "0644"
+
+# Manual:
+#   sudo tar -xzf /tmp/process-exporter-0.8.7.linux-amd64.tar.gz -C /opt
+- name: Unpack it into /opt
+  ansible.builtin.unarchive:
+    src: "/tmp/process-exporter-{{ process_exporter_version }}.tar.gz"
+    dest: /opt
+    remote_src: true
+    creates: "/opt/process-exporter-{{ process_exporter_version }}.linux-amd64/process-exporter"
+
+# The service always runs /opt/process-exporter, so to upgrade we only move this link.
+# Manual:
+#   sudo ln -sfn /opt/process-exporter-0.8.7.linux-amd64 /opt/process-exporter
+- name: Point /opt/process-exporter at this version
+  ansible.builtin.file:
+    src: "/opt/process-exporter-{{ process_exporter_version }}.linux-amd64"
+    dest: /opt/process-exporter
+    state: link
+  notify: Restart process-exporter
+
+# Manual:
+#   sudo install -d -m 0750 -o root -g root /etc/process-exporter
+- name: Create /etc/process-exporter
+  ansible.builtin.file:
+    path: /etc/process-exporter
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+# Group processes by their name, and watch every process.
+# Manual:
+#   sudo tee /etc/process-exporter/config.yml > /dev/null <<'EOF'
+#   process_names:
+#     - name: "{{.Comm}}"
+#       cmdline:
+#         - '.+'
+#   EOF
+#   sudo chmod 0640 /etc/process-exporter/config.yml
+- name: Write the process-exporter config
+  ansible.builtin.template:
+    src: config.yml.j2
+    dest: /etc/process-exporter/config.yml
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Restart process-exporter
+
+# Manual:
+#   sudo tee /etc/systemd/system/process-exporter.service > /dev/null <<'EOF'
+#   (paste the content below)
+#   EOF
+#   sudo systemctl daemon-reload
+- name: Write the systemd service file
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Description=Prometheus process exporter
+      After=network-online.target
+
+      [Service]
+      ExecStart=/opt/process-exporter/process-exporter \
+        --config.path=/etc/process-exporter/config.yml \
+        --web.listen-address=:9256
+      Restart=on-failure
+      MemoryMax=64M
+
+      [Install]
+      WantedBy=multi-user.target
+    dest: /etc/systemd/system/process-exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart process-exporter
+
+# If a task above changed something, the restart in handlers/main.yaml runs at the end of the play.
+# Manual:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now process-exporter
+#   curl -s localhost:9256/metrics | grep ^namedprocess_namegroup_memory_bytes | head -3     # check: you should see metrics
+- name: Make sure it runs now and at boot
+  ansible.builtin.systemd_service:
+    name: process-exporter
+    daemon_reload: true
+    enabled: true
+    state: started

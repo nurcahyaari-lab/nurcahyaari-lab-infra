@@ -21,3 +21,6 @@
 
 - name: Tailscale Subnetting
   ansible.builtin.import_playbook: tailscale_subnetting.yaml
+
+- name: Setup monitoring tools
+  ansible.builtin.import_playbook: monitoring.yaml

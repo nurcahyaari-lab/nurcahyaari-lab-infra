@@ -1,0 +1,107 @@
+# Installs Alertmanager from the GitHub release and runs it with systemd.
+# It gets alerts from Prometheus and sends them to Telegram.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+# In the commands, V is the version from group_vars/monitoring.yaml, like V=0.32.0
+---
+# Manual:
+#   sudo useradd --system --shell /usr/sbin/nologin --no-create-home alertmanager
+- name: Create the alertmanager system user
+  ansible.builtin.user:
+    name: alertmanager
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+# Manual:
+#   cd /tmp
+#   curl -LO https://github.com/prometheus/alertmanager/releases/download/v$V/alertmanager-$V.linux-amd64.tar.gz
+#   curl -LO https://github.com/prometheus/alertmanager/releases/download/v$V/sha256sums.txt
+#   sha256sum --check --ignore-missing sha256sums.txt     # check: it should say OK
+- name: Download Alertmanager {{ alertmanager_version }} (checksum verified)
+  ansible.builtin.get_url:
+    url: "{{ alertmanager_url }}/alertmanager-{{ alertmanager_version }}.linux-amd64.tar.gz"
+    checksum: "sha256:{{ alertmanager_url }}/sha256sums.txt"
+    dest: "/tmp/alertmanager-{{ alertmanager_version }}.tar.gz"
+    mode: "0644"
+
+# Manual:
+#   sudo tar -xzf /tmp/alertmanager-$V.linux-amd64.tar.gz -C /opt
+- name: Unpack it into /opt
+  ansible.builtin.unarchive:
+    src: "/tmp/alertmanager-{{ alertmanager_version }}.tar.gz"
+    dest: /opt
+    remote_src: true
+    creates: "/opt/alertmanager-{{ alertmanager_version }}.linux-amd64/alertmanager"
+
+# Manual:
+#   sudo ln -sfn /opt/alertmanager-$V.linux-amd64 /opt/alertmanager
+- name: Point /opt/alertmanager at this version
+  ansible.builtin.file:
+    src: "/opt/alertmanager-{{ alertmanager_version }}.linux-amd64"
+    dest: /opt/alertmanager
+    state: link
+  notify: Restart alertmanager
+
+# Manual:
+#   sudo install -d -o root         -g alertmanager -m 0750 /etc/alertmanager /etc/alertmanager-secrets
+#   sudo install -d -o alertmanager -g alertmanager -m 0750 /var/lib/alertmanager
+- name: Create config, secrets and data folders
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: alertmanager
+    mode: "0750"
+  loop:
+    - { path: /etc/alertmanager,         owner: root }
+    - { path: /etc/alertmanager-secrets, owner: root }
+    - { path: /var/lib/alertmanager,     owner: alertmanager }
+
+# Manual (the space at the start keeps the token out of shell history):
+#    printf '%s' 'TOKEN' | sudo tee /etc/alertmanager-secrets/telegram_bot_token > /dev/null
+#   sudo chown root:alertmanager /etc/alertmanager-secrets/telegram_bot_token
+#   sudo chmod 0640 /etc/alertmanager-secrets/telegram_bot_token
+#   sudo systemctl reload alertmanager
+- name: Install the Telegram bot token (from Ansible Vault)
+  ansible.builtin.copy:
+    content: "{{ telegram_bot_token }}"
+    dest: /etc/alertmanager-secrets/telegram_bot_token
+    owner: root
+    group: alertmanager
+    mode: "0640"
+  no_log: true
+  notify: Reload alertmanager
+
+# Manual (after copying alertmanager.yml to /tmp on the VM):
+#   /opt/alertmanager/amtool check-config /tmp/alertmanager.yml     # check: it should say SUCCESS
+#   sudo install -o root -g alertmanager -m 0640 /tmp/alertmanager.yml /etc/alertmanager/alertmanager.yml
+#   sudo systemctl reload alertmanager
+- name: Install alertmanager.yml (from the manifests repo; amtool checks it first)
+  ansible.builtin.copy:
+    src: "{{ monitoring_config_dir }}/alertmanager/alertmanager.yml"
+    dest: /etc/alertmanager/alertmanager.yml
+    owner: root
+    group: alertmanager
+    mode: "0640"
+    validate: /opt/alertmanager/amtool check-config %s
+  notify: Reload alertmanager
+
+# Manual:
+#   sudo vim /etc/systemd/system/alertmanager.service     # paste templates/alertmanager.service.j2, fill in the {{ }} values
+#   sudo systemctl daemon-reload
+- name: Install the systemd unit
+  ansible.builtin.template:
+    src: alertmanager.service.j2
+    dest: /etc/systemd/system/alertmanager.service
+    mode: "0644"
+  notify: Restart alertmanager
+
+# Manual:
+#   sudo systemctl enable --now alertmanager
+#   curl -s localhost:9093/-/ready     # check: it should say OK
+- name: Start Alertmanager now and at boot
+  ansible.builtin.systemd_service:
+    name: alertmanager
+    state: started
+    enabled: true
+    daemon_reload: true

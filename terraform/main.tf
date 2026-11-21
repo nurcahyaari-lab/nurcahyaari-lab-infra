@@ -4,6 +4,10 @@ terraform {
       source  = "bpg/proxmox"
       version = "~> 0.123.1" # x-release-please-version
     }
+    tailscale = {
+      source  = "tailscale/tailscale"
+      version = "~> 0.30.0"
+    }
   }
 
   backend "s3" {
@@ -41,6 +45,12 @@ provider "proxmox" {
   }
 }
 
+# Reads TAILSCALE_OAUTH_CLIENT_ID and TAILSCALE_OAUTH_CLIENT_SECRET from .env.
+# tailnet "-" means the tailnet the OAuth client belongs to.
+provider "tailscale" {
+  tailnet = "-"
+}
+
 module "proxmox" {
   source = "./proxmox"
 
@@ -55,3 +65,9 @@ module "proxmox" {
   vms             = var.vms
 }
 
+
+module "tailscale" {
+  source = "./tailscale"
+
+  routes = var.tailscale_routes
+}

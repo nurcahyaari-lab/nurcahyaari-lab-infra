@@ -55,6 +55,12 @@ variable "vm_password" {
   sensitive   = true
 }
 
+variable "tailscale_routes" {
+  description = "LAN subnets pve routes into the tailnet. Must match tailscale_advertise_routes in ansible/inventory/group_vars/proxmox.yaml"
+  type        = list(string)
+  default     = ["192.168.1.0/24"]
+}
+
 variable "vms" {
   description = "VM spec sheet. Add an entry here to create another VM."
   type = map(object({

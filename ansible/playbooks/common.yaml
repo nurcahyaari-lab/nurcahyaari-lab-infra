@@ -3,7 +3,7 @@
 #   ansible-playbook playbooks/common.yaml
 ---
 - name: Base setup
-  hosts: all
+  hosts: all:!proxmox
   become: true
   roles:
     - common

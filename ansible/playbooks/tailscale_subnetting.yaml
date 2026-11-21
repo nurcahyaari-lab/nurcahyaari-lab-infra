@@ -1,0 +1,10 @@
+# Makes pve a Tailscale subnet router, so the LAN (192.168.1.x) is reachable from the tailnet.
+# Tailscale must already be installed and logged in on pve (manual, ansible needs it to reach pve).
+# Approving the routes is done by terraform (terraform/tailscale), run that after this.
+# Run it with:
+#   ansible-playbook playbooks/tailscale_subnetting.yaml
+---
+- name: Tailscale subnet router
+  hosts: proxmox
+  roles:
+    - tailscale_subnetting

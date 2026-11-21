@@ -1,0 +1,23 @@
+# Config for "kubeadm init". Ansible writes it to /etc/kubernetes/kubeadm-config.yaml.
+# It replaces the old command-line flags (kubeadm does not allow --config together with them):
+#   --apiserver-advertise-address  -> InitConfiguration.localAPIEndpoint.advertiseAddress
+#   --control-plane-endpoint       -> ClusterConfiguration.controlPlaneEndpoint
+#   --pod-network-cidr             -> ClusterConfiguration.networking.podSubnet
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: {{ ansible_default_ipv4.address }}
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+controlPlaneEndpoint: {{ k8s_control_plane_endpoint }}
+networking:
+  podSubnet: {{ k8s_pod_network_cidr }}
+---
+# kubeadm saves this in the kube-system/kubelet-config ConfigMap.
+# Every node gets it, including workers when they run "kubeadm join".
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+# kubelet asks the cluster for a real serving certificate instead of a self-signed one.
+# These requests (CSRs) need approval: kubectl certificate approve <csr>, or kubelet-csr-approver.
+serverTLSBootstrap: true

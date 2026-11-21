@@ -15,3 +15,6 @@ crash.log
 
 # Python virtualenvs (ansible/.venv)
 .venv/
+
+# Ansible local cache (ansible-lint / ansible-galaxy)
+.ansible/

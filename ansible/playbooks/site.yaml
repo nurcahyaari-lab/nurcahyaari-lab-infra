@@ -24,3 +24,6 @@
 
 - name: Setup monitoring tools
   ansible.builtin.import_playbook: monitoring.yaml
+
+- name: Install adguardhome
+  ansible.builtin.import_playbook: adguardhome.yaml

@@ -1,0 +1,10 @@
+# Installs AdGuard Home on the machines in the [dns] group.
+# Needs vault_adguardhome_admin_password in the vault, see group_vars/dns/.
+# Run it with:
+#   ansible-playbook playbooks/adguardhome.yaml --ask-vault-pass
+---
+- name: Install AdGuard Home
+  hosts: dns
+  become: true
+  roles:
+    - adguardhome

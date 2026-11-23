@@ -1,0 +1,193 @@
+# Installs AdGuard Home from the GitHub release and runs it with systemd.
+# Above each task, "Manual:" shows the command that does the same thing by hand.
+# In the commands, V is the version from group_vars/dns/dns.yaml
+---
+# Ubuntu's systemd-resolved listens on port 53. Turn that off so AdGuard Home can use it.
+# Manual:
+#   sudo mkdir -p /etc/systemd/resolved.conf.d
+#   printf '[Resolve]\nDNS=127.0.0.1\nDNSStubListener=no\n' | sudo tee /etc/systemd/resolved.conf.d/adguardhome.conf
+- name: Mkdir /etc/systemd/resolved.conf.d
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    mode: "0755"
+
+- name: Stop systemd-resolved from listening on port 53
+  ansible.builtin.copy:
+    dest: /etc/systemd/resolved.conf.d/adguardhome.conf
+    content: |
+      [Resolve]
+      DNS=127.0.0.1
+      DNSStubListener=no
+    mode: "0644"
+  notify: Restart systemd-resolved
+
+# Manual:
+#   sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+- name: Point /etc/resolv.conf at the real resolver list (not the 127.0.0.53 stub)
+  ansible.builtin.file:
+    src: /run/systemd/resolve/resolv.conf
+    dest: /etc/resolv.conf
+    state: link
+    force: true
+  notify: Restart systemd-resolved
+
+# Port 53 has to be free before AdGuard Home starts, so restart systemd-resolved now, not at the end.
+- name: Apply the systemd-resolved change now
+  ansible.builtin.meta: flush_handlers
+
+# Manual:
+#   sudo useradd --system --shell /usr/sbin/nologin --no-create-home adguardhome
+- name: Create the adguardhome system user
+  ansible.builtin.user:
+    name: adguardhome
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+# Manual:
+#   cd /tmp
+#   curl -LO https://github.com/AdguardTeam/AdGuardHome/releases/download/v$V/AdGuardHome_linux_amd64.tar.gz
+#   curl -LO https://github.com/AdguardTeam/AdGuardHome/releases/download/v$V/checksums.txt
+#   sha256sum --check --ignore-missing checksums.txt     # check: it should say OK
+- name: Download AdGuard Home {{ adguardhome_version }} (checksum verified)
+  ansible.builtin.get_url:
+    url: "{{ adguardhome_url }}/AdGuardHome_linux_amd64.tar.gz"
+    checksum: "sha256:{{ adguardhome_url }}/checksums.txt"
+    dest: "/tmp/adguardhome-{{ adguardhome_version }}.tar.gz"
+    mode: "0644"
+
+# The paths in the tarball look like ./AdGuardHome/AdGuardHome.
+# --strip-components=2 drops the "./" and the "AdGuardHome/" folder, so the binary lands at /opt/adguardhome-$V/AdGuardHome.
+# Manual:
+#   sudo mkdir -p /opt/adguardhome-$V
+#   sudo tar -xzf /tmp/adguardhome-$V.tar.gz -C /opt/adguardhome-$V --strip-components=2
+- name: Create /opt/adguardhome-{{ adguardhome_version }}
+  ansible.builtin.file:
+    path: "/opt/adguardhome-{{ adguardhome_version }}"
+    state: directory
+    mode: "0755"
+
+- name: Unpack it
+  ansible.builtin.unarchive:
+    src: "/tmp/adguardhome-{{ adguardhome_version }}.tar.gz"
+    dest: "/opt/adguardhome-{{ adguardhome_version }}"
+    remote_src: true
+    extra_opts: [--strip-components=2]
+    creates: "/opt/adguardhome-{{ adguardhome_version }}/AdGuardHome"
+
+# Manual:
+#   sudo ln -sfn /opt/adguardhome-$V /opt/adguardhome
+- name: Point /opt/adguardhome at this version
+  ansible.builtin.file:
+    src: "/opt/adguardhome-{{ adguardhome_version }}"
+    dest: /opt/adguardhome
+    state: link
+  notify: Restart adguardhome
+
+# AdGuard Home writes its own config here, so this folder must be writable by it.
+# Manual:
+#   sudo install -d -o adguardhome -g adguardhome -m 0750 /var/lib/adguardhome
+- name: Create the data folder
+  ansible.builtin.file:
+    path: /var/lib/adguardhome
+    state: directory
+    owner: adguardhome
+    group: adguardhome
+    mode: "0750"
+
+# Manual:
+#   sudo vim /etc/systemd/system/adguardhome.service     # paste templates/adguardhome.service.j2
+#   sudo systemctl daemon-reload
+- name: Install the systemd unit
+  ansible.builtin.template:
+    src: adguardhome.service.j2
+    dest: /etc/systemd/system/adguardhome.service
+    mode: "0644"
+  notify: Restart adguardhome
+
+# Manual:
+#   sudo systemctl enable --now adguardhome
+- name: Start AdGuard Home now and at boot
+  ansible.builtin.systemd_service:
+    name: adguardhome
+    state: started
+    enabled: true
+    daemon_reload: true
+
+# First run only: there's no config yet, so AdGuard Home serves its setup wizard
+# on adguardhome_web_port (set by --web-addr in the systemd unit).
+# Instead of clicking through it, send the same answers to the wizard's API.
+# Manual: open http://<vm-ip>:<adguardhome_web_port> in a browser and fill in the wizard.
+- name: Check whether AdGuard Home is already set up
+  ansible.builtin.stat:
+    path: /var/lib/adguardhome/AdGuardHome.yaml
+  register: adguardhome_config
+
+- name: Run the setup wizard through its API
+  when: not adguardhome_config.stat.exists
+  block:
+    - name: Wait for the wizard on port {{ adguardhome_web_port }}
+      ansible.builtin.wait_for:
+        port: "{{ adguardhome_web_port }}"
+        timeout: 30
+
+    - name: Send the wizard answers
+      ansible.builtin.uri:
+        url: http://127.0.0.1:{{ adguardhome_web_port }}/control/install/configure
+        method: POST
+        body_format: json
+        body:
+          web: { ip: "0.0.0.0", port: "{{ adguardhome_web_port | int }}" }
+          dns: { ip: "0.0.0.0", port: 53 }
+          username: "{{ adguardhome_admin_user }}"
+          password: "{{ adguardhome_admin_password }}"
+        status_code: 200
+      no_log: true
+
+# Manual:
+#   dig @127.0.0.1 example.com +short     # check: it should print an IP
+- name: Check that DNS answers
+  ansible.builtin.command: dig @127.0.0.1 example.com +short
+  register: adguardhome_dig
+  changed_when: false
+  failed_when: adguardhome_dig.stdout | length == 0
+  retries: 5
+  delay: 2
+  until: adguardhome_dig.stdout | length > 0
+
+# Manual: Filters → DNS rewrites → Add DNS rewrite in the web UI.
+# Or: curl -u admin:PASS http://127.0.0.1:3005/control/rewrite/list
+- name: Read the current DNS rewrites
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ adguardhome_web_port }}/control/rewrite/list"
+    url_username: "{{ adguardhome_admin_user }}"
+    url_password: "{{ adguardhome_admin_password }}"
+    force_basic_auth: true
+    return_content: true
+  register: adguardhome_current_rewrites
+  no_log: true
+
+# Manual:
+#   curl -u admin:PASS -X POST -H 'Content-Type: application/json' \
+#     -d '{"domain":"*.nurcahyaari.lab.internal","answer":"192.168.1.200"}' \
+#     http://127.0.0.1:3005/control/rewrite/add
+- name: Add the missing DNS rewrites
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ adguardhome_web_port }}/control/rewrite/add"
+    method: POST
+    url_username: "{{ adguardhome_admin_user }}"
+    url_password: "{{ adguardhome_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body: "{{ item }}"
+    status_code: 200
+  loop: "{{ adguardhome_rewrites }}"
+  loop_control:
+    label: "{{ item.domain }} -> {{ item.answer }}"
+  when: >-
+    adguardhome_current_rewrites.json
+    | selectattr('domain', 'equalto', item.domain)
+    | selectattr('answer', 'equalto', item.answer)
+    | list | length == 0
+  changed_when: true

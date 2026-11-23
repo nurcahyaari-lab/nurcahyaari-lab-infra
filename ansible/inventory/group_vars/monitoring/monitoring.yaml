@@ -21,3 +21,8 @@ kubectl_context: homelab
 grafana_admin_password: "{{ vault_grafana_admin_password }}"
 telegram_bot_token: "{{ vault_telegram_bot_token }}"
 pve_token_value: "{{ vault_pve_token_value }}"
+
+# Keys to set in /etc/grafana/grafana.ini. Everything else in the file stays as it is.
+grafana_ini_settings:
+  - { section: server, option: domain, value: grafana.nurcahyaari.lab.internal }
+  - { section: server, option: root_url, value: "http://grafana.nurcahyaari.lab.internal/" }

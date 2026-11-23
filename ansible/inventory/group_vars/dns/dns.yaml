@@ -1,0 +1,8 @@
+adguardhome_version: "1.0.0"
+adguardhome_web_port: 3005
+adguardhome_admin_user: admin
+adguardhome_admin_password: "{{ vault_adguardhome_admin_password }}"
+
+adguardhome_rewrites:
+  - { domain: "*.nurcahyaari.lab.internal", answer: "192.168.1.200" }
+  - { domain: "nurcahyaari.lab.internal", answer: "192.168.1.200" }

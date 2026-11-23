@@ -121,6 +121,24 @@
   notify: Restart grafana
 
 # Manual:
+#   sudo nano /etc/grafana/grafana.ini     # set each key under its [section]
+#   sudo systemctl restart grafana-server
+- name: Set grafana.ini settings
+  community.general.ini_file:
+    path: /etc/grafana/grafana.ini
+    section: "{{ item.section }}"
+    option: "{{ item.option }}"
+    value: "{{ item.value }}"
+    owner: root
+    group: grafana
+    mode: "0640"
+    backup: true
+  loop: "{{ grafana_ini_settings }}"
+  loop_control:
+    label: "[{{ item.section }}] {{ item.option }}"
+  notify: Restart grafana
+
+# Manual:
 #   sudo systemctl enable --now grafana-server
 #   curl -s localhost:3000/api/health     # check: "database" should be "ok"
 - name: Start Grafana now and at boot

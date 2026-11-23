@@ -1,0 +1,29 @@
+[Unit]
+Description=AdGuard Home
+Documentation=https://github.com/AdguardTeam/AdGuardHome/wiki
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=adguardhome
+Group=adguardhome
+ExecStart=/opt/adguardhome/AdGuardHome \
+  --config /var/lib/adguardhome/AdGuardHome.yaml \
+  --work-dir /var/lib/adguardhome \
+  --no-check-update \
+  --web-addr 0.0.0.0:{{ adguardhome_web_port }}
+Restart=on-failure
+
+# DNS port 53 is below 1024, so a non-root user needs this capability to use it
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Hardening: AdGuard Home only needs to write to its data folder
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/adguardhome
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

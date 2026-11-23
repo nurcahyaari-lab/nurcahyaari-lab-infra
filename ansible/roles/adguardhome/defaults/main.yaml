@@ -1,0 +1,1 @@
+adguardhome_url: "https://github.com/AdguardTeam/AdGuardHome/releases/download/v{{ adguardhome_version }}"

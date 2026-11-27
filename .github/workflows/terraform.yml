@@ -65,12 +65,6 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - &tfvars
-        name: Write terraform.tfvars
-        run: printf '%s\n' "$TFVARS" > terraform.tfvars
-        env:
-          TFVARS: ${{ secrets.TFVARS }}
-
       - &setup
         uses: opentofu/setup-opentofu@v2
         with:
@@ -93,7 +87,6 @@ jobs:
       - uses: actions/checkout@v7
       - *tailscale
       - *ssh
-      - *tfvars
       - *setup
       - run: tofu init -input=false
       - run: tofu plan -input=false -lock-timeout=5m -out=tfplan

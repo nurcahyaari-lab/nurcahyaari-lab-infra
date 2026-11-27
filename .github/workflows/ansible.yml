@@ -45,7 +45,7 @@ jobs:
   deploy:
     name: Ansible Playbook Deploy
     runs-on: ubuntu-latest
-    environment: hobelab
+    environment: homelab
     defaults:
       run:
         working-directory: ansible
@@ -68,8 +68,8 @@ jobs:
       - name: Join the tailnet
         uses: tailscale/github-action@v4
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}
           tags: tag:ci
           args: --accept-routes
           ping: 100.116.185.117

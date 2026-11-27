@@ -1,6 +1,8 @@
 name: Ansible Deploy
 
-# push to main that touches ansible/ -> waits for approval, then runs site.yaml
+# push to main that touches ansible/ -> works out which playbooks the change affects
+#                                       (.github/scripts/ansible-changed-playbooks.sh),
+#                                       waits for approval, then runs only those
 # manual run (Actions tab)           -> pick a playbook, optionally dry-run with --check
 on:
   push:
@@ -42,15 +44,46 @@ permissions:
   contents: read
 
 jobs:
+  # No environment here, so it runs without approval. If nothing needs to run,
+  # the deploy job is skipped and no approval is requested.
+  plan:
+    name: Pick playbooks
+    runs-on: ubuntu-latest
+    outputs:
+      playbooks: ${{ steps.pick.outputs.playbooks }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Pick playbooks
+        id: pick
+        working-directory: ansible
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_PLAYBOOK: ${{ inputs.playbook }}
+          BASE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            playbooks=$INPUT_PLAYBOOK
+          else
+            playbooks=$(../.github/scripts/ansible-changed-playbooks.sh "$BASE" "$HEAD" | tr '\n' ' ')
+          fi
+          echo "Playbooks to run: ${playbooks:-none}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "playbooks=$playbooks" >> "$GITHUB_OUTPUT"
+
   deploy:
     name: Ansible Playbook Deploy
+    needs: plan
+    if: needs.plan.outputs.playbooks != ''
     runs-on: ubuntu-latest
     environment: homelab
     defaults:
       run:
         working-directory: ansible
     env:
-      PLAYBOOK: ${{ inputs.playbook || 'site.yaml' }}
+      PLAYBOOKS: ${{ needs.plan.outputs.playbooks }}
       LIMIT: ${{ inputs.limit }}
       CHECK: ${{ inputs.check && 'true' || 'false' }}
       ANSIBLE_FORCE_COLOR: "true"
@@ -71,7 +104,6 @@ jobs:
           oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}
           tags: tag:ci
-          args: --accept-routes
           ping: 100.116.185.117
 
       - name: Set up SSH
@@ -111,7 +143,8 @@ jobs:
 
       - name: Run playbook
         run: |
-          args=(playbooks/"$PLAYBOOK")
+          read -ra books <<< "$PLAYBOOKS"
+          args=("${books[@]/#/playbooks/}")
           [ -n "$LIMIT" ] && args+=(--limit "$LIMIT")
           [ "$CHECK" = "true" ] && args+=(--check --diff)
           ansible-playbook "${args[@]}"

@@ -1,0 +1,117 @@
+name: Ansible Deploy
+
+# push to main that touches ansible/ -> waits for approval, then runs site.yaml
+# manual run (Actions tab)           -> pick a playbook, optionally dry-run with --check
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ansible/**
+      - .github/workflows/ansible.yml
+  workflow_dispatch:
+    inputs:
+      playbook:
+        description: Playbook to run
+        type: choice
+        default: site.yaml
+        options:
+          - site.yaml
+          - common.yaml
+          - k8s_prerequisite.yaml
+          - container_runtime.yaml
+          - k8s_init.yaml
+          - k8s_cluster.yaml
+          - tailscale_subnetting.yaml
+          - monitoring.yaml
+          - adguardhome.yaml
+      limit:
+        description: Only run on these hosts (ansible --limit), empty = all
+        type: string
+        default: ""
+      check:
+        description: Dry run (--check --diff)
+        type: boolean
+        default: false
+
+concurrency:
+  group: ansible
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Ansible Playbook Deploy
+    runs-on: ubuntu-latest
+    environment: hobelab
+    defaults:
+      run:
+        working-directory: ansible
+    env:
+      PLAYBOOK: ${{ inputs.playbook || 'site.yaml' }}
+      LIMIT: ${{ inputs.limit }}
+      CHECK: ${{ inputs.check && 'true' || 'false' }}
+      ANSIBLE_FORCE_COLOR: "true"
+      ANSIBLE_VAULT_PASSWORD_FILE: ${{ github.workspace }}/.vault-pass
+      MONITORING_CONFIG_DIR: ${{ github.workspace }}/manifests/monitoring/config
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check out the manifests repo (monitoring config)
+        uses: actions/checkout@v7
+        with:
+          repository: nurcahyaari-lab/nurcahyaari-lab-manifests
+          path: manifests
+
+      - name: Join the tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
+          args: --accept-routes
+          ping: 100.116.185.117
+
+      - name: Set up SSH
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/homelab
+          chmod 600 ~/.ssh/homelab
+          cat > ~/.ssh/config <<'EOF'
+          Host pve
+            HostName 192.168.1.5
+            User root
+            IdentityFile ~/.ssh/homelab
+            StrictHostKeyChecking accept-new
+          EOF
+          chmod 600 ~/.ssh/config
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Write vault password
+        run: |
+          printf '%s' "$VAULT_PASS" > "$ANSIBLE_VAULT_PASSWORD_FILE"
+          chmod 600 "$ANSIBLE_VAULT_PASSWORD_FILE"
+        env:
+          VAULT_PASS: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install Ansible
+        run: |
+          pip install ansible-core
+          ansible-galaxy collection install -r requirements.yaml
+
+      - name: Ping all the hosts
+        run: ansible all -m ping
+
+      - name: Run playbook
+        run: |
+          args=(playbooks/"$PLAYBOOK")
+          [ -n "$LIMIT" ] && args+=(--limit "$LIMIT")
+          [ "$CHECK" = "true" ] && args+=(--check --diff)
+          ansible-playbook "${args[@]}"

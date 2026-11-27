@@ -1,0 +1,101 @@
+name: Terraform
+
+# PR that touches terraform/  -> tofu plan (no changes made)
+# push to main                -> waits for approval in the "homelab" environment, then plan + apply
+# manual run (Actions tab)    -> same as push to main
+on:
+  pull_request:
+    paths:
+      - terraform/**
+      - .github/workflows/terraform.yml
+  push:
+    branches:
+      - main
+    paths:
+      - terraform/**
+      - .github/workflows/terraform.yml
+  workflow_dispatch:
+
+# Only one run at a time touches the state. Never cancel one halfway through an apply.
+concurrency:
+  group: terraform
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: terraform
+
+env:
+  # State bucket (Cloudflare R2)
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_ENDPOINT_URL_S3: ${{ secrets.AWS_ENDPOINT_URL_S3 }}
+  # Proxmox provider
+  TF_VAR_proxmox_api_token: ${{ secrets.TF_VAR_PROXMOX_API_TOKEN }}
+  TF_VAR_vm_password: ${{ secrets.TF_VAR_VM_PASSWORD }}
+  # Tailscale provider
+  TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+  TAILSCALE_OAUTH_CLIENT_SECRET: ${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  plan:
+    name: Plan
+    # PRs from forks get no secrets
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - &tailscale
+        name: Join the tailnet
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_CLIENT_SECRET }}
+          tags: tag:ci
+          args: --accept-routes
+          ping: 100.116.185.117
+
+      - &ssh
+        name: Load the SSH key (the Proxmox provider SSHes to pve as root)
+        uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - &tfvars
+        name: Write terraform.tfvars
+        run: printf '%s\n' "$TFVARS" > terraform.tfvars
+        env:
+          TFVARS: ${{ secrets.TFVARS }}
+
+      - &setup
+        uses: opentofu/setup-opentofu@v2
+        with:
+          tofu_version: 1.13.9
+          tofu_wrapper: false
+
+      - run: tofu fmt -check -recursive
+      - run: tofu init -input=false
+      - run: tofu validate
+      - run: tofu plan -input=false -lock-timeout=5m
+
+  apply:
+    name: Apply
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # Settings > Environments > homelab: add yourself as a required reviewer,
+    # so nothing is applied until you click "Approve".
+    environment: homelab
+    steps:
+      - uses: actions/checkout@v7
+      - *tailscale
+      - *ssh
+      - *tfvars
+      - *setup
+      - run: tofu init -input=false
+      - run: tofu plan -input=false -lock-timeout=5m -out=tfplan
+      - run: tofu apply -input=false -lock-timeout=5m tfplan
